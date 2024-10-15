@@ -1,44 +1,40 @@
-#!/bin/bash
+/* style.css */
 
-docker compose -p sanity kill
-docker compose -p sanity down --volumes
-docker compose -p sanity up -d --force-recreate --renew-anon-volumes
-docker_exit=$?
-if [ ${docker_exit} -eq 0 ]; then
-    echo "Container started successfully"
-else
-    echo "Container started with errors"
-    exit ${docker_exit}
-fi
+body {
+    font-family: Arial, sans-serif; /* Fallback font family */
+    text-align: center; /* Center-align text */
+    margin: 0; /* Remove default margin */
+    background-color: #FADADD; /* Set background color to light pink */
+}
 
-if [ "x$DO_CLEAN" == 'xtrue' ]; then
-    echo 'Do docker Clean'
-    docker system prune -a -f
-fi
+#container {
+    display: flex; /* Use flexbox layout */
+    flex-direction: column; /* Stack elements vertically */
+    align-items: center; /* Center-align items horizontally */
+    justify-content: center; /* Center-align items vertically */
+    height: 100vh; /* Make the container full viewport height */
+}
 
+#image-container {
+    /* This container will hold the images */
+}
 
-# Create init workspace
-./tool.sh create-workspace init-ws-qms -w InitTest
-./tool.sh configure init-ws-qms --enable=*
-./tool.sh configure init-ws-qms --list
+#question {
+    font-family: 'Sacramento', cursive; /* Apply Sacramento font to the question */
+    font-size: 52px; /* Set font size for the question */
+}
 
-# Create workspace record in accounts
-./tool.sh create-workspace sanity-ws-qms -w SanityTest
-# Create user record in accounts
-./tool.sh create-account user1 -f John -l Appleseed -p 1234
-./tool.sh create-account user2 -f Kainin -l Dirak -p 1234
-./tool.sh create-account user3 -f Cain -l Velasquez -p 1234
+#options {
+    margin-top: 20px; /* Add space above the options */
+}
 
-./tool.sh assign-workspace user1 sanity-ws-qms
-./tool.sh assign-workspace user2 sanity-ws-qms
-./tool.sh assign-workspace user3 sanity-ws-qms
-# Make user the workspace maintainer
-./tool.sh confirm-email user1
-./tool.sh confirm-email user2
-./tool.sh confirm-email user3
-
-./tool.sh create-account user_qara -f Qara -l Admin -p 1234
-./tool.sh assign-workspace user_qara sanity-ws-qms
-./tool.sh confirm-email user_qara
-
-./restore-workspace.sh
+button {
+    padding: 10px 20px; /* Set padding for buttons */
+    margin: 0 10px; /* Set margin around buttons */
+    font-size: 26px; /* Set font size for buttons */
+    font-family: 'Sacramento', cursive; /* Apply Sacramento font to the options */
+    background-color: #FB607F; /* Set button background color */
+    color: white; /* Set text color to white */
+    border: none; /* Remove button border */
+    cursor: pointer; /* Set cursor to pointer on hover */
+}
