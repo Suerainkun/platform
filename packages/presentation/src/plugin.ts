@@ -43,7 +43,6 @@ import {
   type InstantTransactions,
   type ObjectSearchCategory
 } from './types'
-import { type UploadConfig } from './file'
 
 /**
  * @public
@@ -139,7 +138,6 @@ export default plugin(presentationId, {
     Workspace: '' as Metadata<string>,
     WorkspaceId: '' as Metadata<string>,
     FrontUrl: '' as Asset,
-    UploadConfig: '' as Metadata<UploadConfig>,
     PreviewConfig: '' as Metadata<PreviewConfig | undefined>,
     ClientHook: '' as Metadata<ClientHook>,
     SessionId: '' as Metadata<string>

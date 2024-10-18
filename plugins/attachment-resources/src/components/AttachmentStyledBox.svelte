@@ -13,7 +13,7 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Attachment, BlobMetadata } from '@hcengineering/attachment'
+  import { Attachment } from '@hcengineering/attachment'
   import {
     Account,
     Class,
@@ -32,7 +32,6 @@
     deleteFile,
     DraftController,
     draftsStore,
-    FileOrBlob,
     getClient,
     getFileMetadata,
     uploadFile
@@ -41,7 +40,6 @@
   import textEditor, { type RefAction } from '@hcengineering/text-editor'
   import { AttachIcon, StyledTextBox } from '@hcengineering/text-editor-resources'
   import { ButtonSize } from '@hcengineering/ui'
-  import { type FileUploadCallbackParams, uploadFiles } from '@hcengineering/uploader'
   import { createEventDispatcher, onDestroy } from 'svelte'
 
   import attachment from '../plugin'
@@ -152,29 +150,11 @@
     }
   }
 
-  async function attachFile (file: File): Promise<{ file: Ref<Blob>, type: string } | undefined> {
+  async function createAttachment (file: File): Promise<{ file: Ref<Blob>, type: string } | undefined> {
+    if (space === undefined || objectId === undefined || _class === undefined) return
     try {
       const uuid = await uploadFile(file)
       const metadata = await getFileMetadata(file, uuid)
-      await createAttachment(uuid, file.name, file, metadata)
-      return { file: uuid, type: file.type }
-    } catch (err: any) {
-      await setPlatformStatus(unknownError(err))
-    }
-  }
-
-  async function onFileUploaded ({ uuid, name, file, metadata }: FileUploadCallbackParams): Promise<void> {
-    await createAttachment(uuid, name, file, metadata)
-  }
-
-  async function createAttachment (
-    uuid: Ref<Blob>,
-    name: string,
-    file: FileOrBlob,
-    metadata: BlobMetadata | undefined
-  ): Promise<void> {
-    if (space === undefined || objectId === undefined || _class === undefined) return
-    try {
       const _id: Ref<Attachment> = generateId()
 
       attachments.set(_id, {
@@ -186,14 +166,13 @@
         space,
         attachedTo: objectId,
         attachedToClass: _class,
-        name,
+        name: file.name,
         file: uuid,
         type: file.type,
         size: file.size,
-        lastModified: file instanceof File ? file.lastModified : Date.now(),
+        lastModified: file.lastModified,
         metadata
       })
-
       newAttachments.add(_id)
       attachments = attachments
       saved = false
@@ -204,6 +183,7 @@
       if (useDirectAttachDelete) {
         saveNewAttachment(_id)
       }
+      return { file: uuid, type: file.type }
     } catch (err: any) {
       setPlatformStatus(unknownError(err))
     }
@@ -227,7 +207,12 @@
     progress = true
     const list = inputFile.files
     if (list === null || list.length === 0) return
-    await uploadFiles(list, { onFileUploaded })
+    for (let index = 0; index < list.length; index++) {
+      const file = list.item(index)
+      if (file !== null) {
+        await createAttachment(file)
+      }
+    }
     inputFile.value = ''
     progress = false
   }
@@ -235,8 +220,14 @@
   export async function fileDrop (e: DragEvent): Promise<void> {
     progress = true
     const list = e.dataTransfer?.files
-    if (list === undefined || list.length === 0) return
-    await uploadFiles(list, { onFileUploaded })
+    if (list !== undefined && list.length !== 0) {
+      for (let index = 0; index < list.length; index++) {
+        const file = list.item(index)
+        if (file !== null) {
+          await createAttachment(file)
+        }
+      }
+    }
     progress = false
   }
 
@@ -356,19 +347,14 @@
     }
 
     const items = evt.clipboardData?.items ?? []
-    const files: File[] = []
     for (const index in items) {
       const item = items[index]
       if (item.kind === 'file') {
         const blob = item.getAsFile()
         if (blob !== null) {
-          files.push(blob)
+          await createAttachment(blob)
         }
       }
-    }
-
-    if (files.length > 0) {
-      await uploadFiles(files, { onFileUploaded })
     }
   }
 
@@ -434,7 +420,9 @@
     on:blur
     on:focus
     on:open-document
-    {attachFile}
+    attachFile={async (file) => {
+      return await createAttachment(file)
+    }}
   />
   {#if attachments.size > 0 && enableAttachments}
     <AttachmentsGrid

@@ -177,14 +177,7 @@ export async function uploadFilesToDrive (dt: DataTransfer, space: Ref<Drive>, p
       ? { objectId: parent, objectClass: drive.class.Folder }
       : { objectId: space, objectClass: drive.class.Drive }
 
-  const options = {
-    onFileUploaded,
-    showProgress: {
-      target
-    }
-  }
-
-  await uploadFiles(files, options)
+  await uploadFiles(files, target, {}, onFileUploaded)
 }
 
 export async function uploadFilesToDrivePopup (space: Ref<Drive>, parent: Ref<Folder>): Promise<void> {
@@ -196,15 +189,12 @@ export async function uploadFilesToDrivePopup (space: Ref<Drive>, parent: Ref<Fo
       : { objectId: space, objectClass: drive.class.Drive }
 
   await showFilesUploadPopup(
-    {
-      onFileUploaded,
-      showProgress: {
-        target
-      }
-    },
+    target,
+    {},
     {
       fileManagerSelectionType: 'both'
-    }
+    },
+    onFileUploaded
   )
 }
 
@@ -244,7 +234,7 @@ async function fileUploadCallback (space: Ref<Drive>, parent: Ref<Folder>): Prom
     return current
   }
 
-  const callback: FileUploadCallback = async ({ uuid, name, file, path, metadata }) => {
+  const callback: FileUploadCallback = async (uuid, name, file, path, metadata) => {
     const folder = await findParent(path)
     try {
       const data = {

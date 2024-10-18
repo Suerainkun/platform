@@ -101,11 +101,6 @@ export function startFront (ctx: MeasureContext, extraConfig?: Record<string, st
     process.exit(1)
   }
 
-  let uploadConfig = process.env.UPLOAD_CONFIG
-  if (uploadConfig === undefined) {
-    uploadConfig = ''
-  }
-
   let previewConfig = process.env.PREVIEW_CONFIG
   if (previewConfig === undefined) {
     // Use universal preview config
@@ -141,7 +136,6 @@ export function startFront (ctx: MeasureContext, extraConfig?: Record<string, st
     collaborator,
     brandingUrl,
     previewConfig,
-    uploadConfig,
     pushPublicKey,
     disableSignUp
   }

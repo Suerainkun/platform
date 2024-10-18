@@ -14,18 +14,12 @@
 //
 
 import { type Blob, type Ref, generateId } from '@hcengineering/core'
-import { getMetadata, PlatformError, unknownError } from '@hcengineering/platform'
-import presentation, {
-  type FileUploadParams,
-  generateFileId,
-  getFileMetadata,
-  getFileUploadParams,
-  getUploadUrl
-} from '@hcengineering/presentation'
+import { getMetadata } from '@hcengineering/platform'
+import presentation, { generateFileId, getFileMetadata, getUploadUrl } from '@hcengineering/presentation'
 import { getCurrentLanguage } from '@hcengineering/theme'
-import type { FileUploadOptions } from '@hcengineering/uploader'
+import type { FileUploadCallback, FileUploadOptions } from '@hcengineering/uploader'
 
-import Uppy, { type UppyFile, type UppyOptions } from '@uppy/core'
+import Uppy, { type IndexedObject, type UppyOptions } from '@uppy/core'
 import XHR from '@uppy/xhr-upload'
 
 import En from '@uppy/locales/lib/en_US'
@@ -34,8 +28,6 @@ import Es from '@uppy/locales/lib/es_ES'
 import Pt from '@uppy/locales/lib/pt_PT'
 import Ru from '@uppy/locales/lib/ru_RU'
 import Zh from '@uppy/locales/lib/zh_CN'
-
-import type { UppyBody, UppyMeta } from './types'
 
 type Locale = UppyOptions['locale']
 
@@ -52,65 +44,22 @@ function getUppyLocale (lang: string): Locale {
   return locales[lang] ?? En
 }
 
-interface XHRFileProcessor {
-  name: string
-  onBeforeUpload: (uppy: Uppy, file: UppyFile, params: FileUploadParams) => Promise<void>
-  onAfterUpload: (uppy: Uppy, file: UppyFile, params: FileUploadParams) => Promise<void>
-}
+// For Uppy 4.0 compatibility
+type Meta = IndexedObject<any>
+type Body = IndexedObject<any>
 
-const FormDataFileProcessor: XHRFileProcessor = {
-  name: 'form-data',
-
-  onBeforeUpload: async (uppy: Uppy, file: UppyFile, { url, headers }: FileUploadParams): Promise<void> => {
-    const xhrUpload = 'xhrUpload' in file && typeof file.xhrUpload === 'object' ? file.xhrUpload : {}
-    const state = {
-      xhrUpload: {
-        ...xhrUpload,
-        endpoint: url,
-        method: 'POST',
-        formData: true,
-        headers
-      }
-    }
-    uppy.setFileState(file.id, state)
-  },
-
-  onAfterUpload: async (uppy: Uppy, file: UppyFile, params: FileUploadParams): Promise<void> => {}
-}
-
-const SignedURLFileProcessor: XHRFileProcessor = {
-  name: 'signed-url',
-
-  onBeforeUpload: async (uppy: Uppy, file: UppyFile, { url, headers }: FileUploadParams): Promise<void> => {
-    const xhrUpload = 'xhrUpload' in file && typeof file.xhrUpload === 'object' ? file.xhrUpload : {}
-    const signedUrl = await getSignedUploadUrl(file, url)
-    const state = {
-      xhrUpload: {
-        ...xhrUpload,
-        formData: false,
-        method: 'PUT',
-        endpoint: signedUrl,
-        headers: {
-          ...headers,
-          // S3 direct upload does not require authorization
-          Authorization: '',
-          'Content-Type': file.type
-        }
-      }
-    }
-    uppy.setFileState(file.id, state)
-  },
-
-  onAfterUpload: async (uppy: Uppy, file: UppyFile, params: FileUploadParams): Promise<void> => {
-    const error = 'error' in file && file.error != null
-    await fetch(params.url, { method: error ? 'DELETE' : 'PUT' })
-  }
+/** @public */
+export type UppyMeta = Meta & {
+  relativePath?: string
 }
 
 /** @public */
-export function getUppy (options: FileUploadOptions): Uppy<UppyMeta, UppyBody> {
-  const { onFileUploaded } = options
+export type UppyBody = Body & {
+  uuid: string
+}
 
+/** @public */
+export function getUppy (options: FileUploadOptions, onFileUploaded?: FileUploadCallback): Uppy<UppyMeta, UppyBody> {
   const uppyOptions: Partial<UppyOptions> = {
     id: generateId(),
     locale: getUppyLocale(getCurrentLanguage()),
@@ -122,14 +71,31 @@ export function getUppy (options: FileUploadOptions): Uppy<UppyMeta, UppyBody> {
     }
   }
 
-  const uppy = new Uppy<UppyMeta, UppyBody>(uppyOptions)
+  const uppy = new Uppy<UppyMeta, UppyBody>(uppyOptions).use(XHR, {
+    endpoint: getUploadUrl(),
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + (getMetadata(presentation.metadata.Token) as string)
+    },
+    getResponseError: (_, response) => {
+      return new Error((response as Response).statusText)
+    }
+  })
 
-  // Ensure we always have UUID
+  // Hack to setup shouldRetry callback on xhrUpload that is not exposed in options
+  const xhrUpload = uppy.getState().xhrUpload ?? {}
+  uppy.getState().xhrUpload = {
+    ...xhrUpload,
+    shouldRetry: (response: Response) => response.status !== 413
+  }
+
   uppy.addPreProcessor(async (fileIds: string[]) => {
     for (const fileId of fileIds) {
       const file = uppy.getFile(fileId)
-      if (file != null && file.meta.uuid === undefined) {
-        uppy.setFileMeta(fileId, { uuid: generateFileId() })
+      if (file != null) {
+        const uuid = generateFileId()
+        file.meta.uuid = uuid
+        file.meta.name = uuid
       }
     }
   })
@@ -145,78 +111,11 @@ export function getUppy (options: FileUploadOptions): Uppy<UppyMeta, UppyBody> {
         const uuid = file.meta.uuid as Ref<Blob>
         if (uuid !== undefined) {
           const metadata = await getFileMetadata(file.data, uuid)
-          await onFileUploaded({
-            uuid,
-            name: file.name,
-            file: file.data,
-            path: file.meta.relativePath,
-            metadata
-          })
-        } else {
-          console.warn('missing file metadata uuid', file)
+          await onFileUploaded(uuid, file.name, file.data, file.meta.relativePath, metadata)
         }
       }
     })
   }
 
-  configureXHR(uppy)
-
   return uppy
-}
-
-function configureXHR (uppy: Uppy<UppyMeta, UppyBody>): Uppy<UppyMeta, UppyBody> {
-  uppy.use(XHR, {
-    endpoint: getUploadUrl(),
-    method: 'POST',
-    headers: {
-      Authorization: 'Bearer ' + (getMetadata(presentation.metadata.Token) as string)
-    },
-    getResponseError: (_, response) => {
-      return new Error((response as Response).statusText)
-    }
-  })
-
-  // Hack to setup shouldRetry callback on xhrUpload that is not exposed in options
-  const xhrUpload = uppy.getState().xhrUpload ?? {}
-  uppy.getState().xhrUpload = {
-    ...xhrUpload,
-    shouldRetry: (response: Response) => !(response.status in [401, 403, 413])
-  }
-
-  uppy.addPreProcessor(async (fileIds: string[]) => {
-    for (const fileId of fileIds) {
-      const file = uppy.getFile(fileId)
-      if (file != null) {
-        const params = getFileUploadParams(file.meta.uuid, file.data)
-        const processor = getXHRProcessor(file, params)
-        await processor.onBeforeUpload(uppy, file, params)
-      }
-    }
-  })
-
-  uppy.addPostProcessor(async (fileIds: string[]) => {
-    for (const fileId of fileIds) {
-      const file = uppy.getFile(fileId)
-      if (file != null) {
-        const params = getFileUploadParams(file.meta.uuid, file.data)
-        const processor = getXHRProcessor(file, params)
-        await processor.onAfterUpload(uppy, file, params)
-      }
-    }
-  })
-
-  return uppy
-}
-
-function getXHRProcessor (file: UppyFile, params: FileUploadParams): XHRFileProcessor {
-  return params.method === 'form-data' ? FormDataFileProcessor : SignedURLFileProcessor
-}
-
-async function getSignedUploadUrl (file: UppyFile, signUrl: string): Promise<string> {
-  const response = await fetch(signUrl, { method: 'POST' })
-  if (!response.ok) {
-    throw new PlatformError(unknownError('Failed to get signed upload url'))
-  }
-
-  return await response.text()
 }
